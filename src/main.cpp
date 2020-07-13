@@ -3,9 +3,10 @@
 
 #define PIN_SCK PB_3
 #define PIN_MISO PB_4
-#define PIN_ACH_1 PF_1
-#define PIN_ACH_2 PA_8
+#define PIN_ACH_1 PA_8
+#define PIN_ACH_2 PF_1
 #define PIN_PWM PF_0
+#define PIN_CURRENT PA_4
 
 const char updateFlag = 0x5e;
 
@@ -14,6 +15,7 @@ DigitalIn fDat(PIN_MISO);
 DigitalOut ach1(PIN_ACH_1);
 DigitalOut ach2(PIN_ACH_2);
 PwmOut pwm(PIN_PWM);
+AnalogIn currentSensor(PIN_CURRENT);
 
 void loop();
 void reset();
@@ -22,24 +24,32 @@ void close();
 void start();
 void pause();
 void stop();
-void shakeBlocking(); //блокирующий код 
 void shakeSync(); //синхронный (не блок.) код
+void shakeCurrentControl(); //синхронный (не блок.) код с контролем по току
 
 
 int force;
 int getForce();
 int forceCalib();
-int forceSmoothed();
+int getForceSmoothed();
 int forceOffset = 0;
-float forceGain = 1.0f;
-float forceSmooth = 0.99f;
+float forceGain = 65;
+float forceSmooth = 0.97f;
+
+int current = 0;
+int getCurrent();
+int stopCurrent = 200; //мА
+int currentGain = 185;
+int currentOffset = 2525;
+int currentDelay = 300;
+float currentSmooth = 0.98f;
 
 int shakesCount = 0;
-int shakeTime = 1000;
+int shakeTime = 600;
 int coolingTime = 700;
-int testState = 1;
+int testState = 3;
 int prosthesisState = 1;
-int motionState = 0; //0 still, 1 opening, 2 closing
+int motionState = 0; //0 не двигается, 1 октрывается, 2 закрывается
 
 char parcel[256];
 char* rxBuf;
@@ -50,8 +60,6 @@ void parse();
 int combineParcel();
 
 /* Unused variables */
-int current = 0;
-int stopCurrent = 0;
 int stopStrength = 0;
 int temp = 0;
 int nominalTemp = 0;
@@ -65,10 +73,11 @@ Timer timerMotion;
 Timer timerCooling;
 
 int main(){
-  forceOffset = forceCalib();
   pc.baud(115200);
+  forceOffset = forceCalib();
+  pc.printf("Force offset: %d\n", forceOffset);
   timerCooling.start();
-  pwm.period_ms(20);
+  pwm.period_ms(20); //для мотора
   pwm.write(1.0f);
   pc.attach(&onDataRecieved, SerialBase::RxIrq);
   while(1) {
@@ -77,8 +86,12 @@ int main(){
 }
 
 void loop(){
+  combineParcel();
+  pc.printf("%s", parcel);
+  //force = getForceSmoothed();
+  //pc.printf("%d\n",force);
   if(testState==1){ //if running
-   shakeSync();
+   shakeCurrentControl();
   }
 }
 
@@ -98,7 +111,7 @@ int getForce(){
     fSck = 1;
     fSck = 0;
   }
-  return buf-forceOffset;
+  return abs(buf-forceOffset);
 }
 
 int forceCalib(){
@@ -115,7 +128,7 @@ int getForceSmoothed(){
   static int fRaw;
   static int fOld;
   static int fSm;
-  fRaw = getForce();
+  fRaw = (getForce())/forceGain;
   fSm = fOld * forceSmooth + fRaw * (1-forceSmooth);
   fOld = fSm;
   return fSm;
@@ -138,7 +151,9 @@ void reset(){
 }
 
 int combineParcel(){
-  int sz = sprintf(parcel, "FCD>%d %d %d %d %d %d %d %d %d %d %d %d\r\n",
+  current = getCurrent();
+  force = getForceSmoothed();
+  int sz = sprintf(parcel, "FCD> %d %d %d %d %d %d %d %d %d %d %d %d\r",
   shakesCount,
   current, 
   force,
@@ -153,24 +168,6 @@ int combineParcel(){
   voltage
   );
   return sz;
-}
-
-void shakeBlocking(){
-  ach1 = 1;
-  ach2 = 0;
-  wait_ms(shakeTime);
-  prosthesisState = 2;
-  ach1=0;
-  ach2=0;
-  wait_ms(coolingTime);
-  ach1=0;
-  ach2=1;
-  wait_ms(shakeTime);
-  prosthesisState = 1;
-  ach1=0;
-  ach2=0;
-  wait_ms(coolingTime);
-  shakesCount++;
 }
 
 void shakeSync(){
@@ -211,6 +208,45 @@ void shakeSync(){
     }
   }
 } 
+
+void shakeCurrentControl(){ //Attention! Здесь timerMotion используется для других целей!
+  current = getCurrent();
+  if(current>=stopCurrent){
+    if(timerMotion.read_ms()>=currentDelay){
+      ach1=0;
+      ach2=0;
+      if(motionState==1){
+        prosthesisState=1;
+        motionState=0;
+        shakesCount++;
+      }
+      if(motionState==2){
+        prosthesisState=2;
+        motionState=0;
+      }
+      timerCooling.reset();
+      timerCooling.start();
+      timerMotion.stop();
+    }
+  }
+  if(motionState==0){
+    if(timerCooling.read_ms()>=coolingTime){
+      timerCooling.stop();
+      timerMotion.reset();
+      timerMotion.start();
+      if(prosthesisState==1){
+        motionState=2;
+        ach1=1;
+        ach2=0;
+      }
+      if(prosthesisState==2){
+        motionState=1;
+        ach1=0;
+        ach2=1;
+      }
+    }
+  }
+}
 
 void flushSerialBuffer(void){ //очистка буфера порта
   char char1 = 0;
@@ -254,6 +290,14 @@ void parse(){
         break;
       }
 
+      case 0x04:{
+        uint8_t hi = rxBuf[2];
+        uint8_t lo = rxBuf[3];
+        uint16_t val = (hi << 8) + lo;
+        stopCurrent = val;
+        break;
+      }
+      
       case 0x06:{
         switch (rxBuf[2]){
           case 0x01: prosthesisState=1; open(); break;
@@ -345,4 +389,15 @@ void stop(){
   timerMotion.stop();
   ach1=0;
   ach2=0;
+}
+
+int getCurrent(){
+  static int c;
+  static int old;
+  static int raw;
+  //int a = ((abs((currentSensor*3300)-currentOffset))/currentGain)*1000;
+  raw = ((abs((currentSensor*3300)-currentOffset))/currentGain)*1000;
+  c = old * currentSmooth + raw * (1-currentSmooth);
+  old = c;
+  return c;
 }
