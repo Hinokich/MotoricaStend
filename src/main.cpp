@@ -33,15 +33,16 @@ int getForce();
 int forceCalib();
 int getForceSmoothed();
 int forceOffset = 0;
-float forceGain = 65;
+float forceGain = 150;
 float forceSmooth = 0.97f;
 
 int current = 0;
 int getCurrent();
-int stopCurrent = 200; //мА
+int stopCurrent = 2500; //мА
 int currentGain = 185;
 int currentOffset = 2525;
 int currentDelay = 300;
+int currentMinimumTriggerTime = 3000; //если за это время (мс) ток не достигнет упора, испытания прекратятся 
 float currentSmooth = 0.98f;
 
 int shakesCount = 0;
@@ -245,6 +246,19 @@ void shakeCurrentControl(){ //Attention! Здесь timerMotion использу
         ach2=1;
       }
     }
+  }
+  if(timerMotion.read_ms() >= currentMinimumTriggerTime){
+    ach1=0;
+    ach2=0;
+    if(motionState!=0){
+      prosthesisState=motionState;
+    }
+    motionState=0;
+    timerMotion.stop();
+    timerMotion.reset();
+    timerCooling.stop();
+    timerCooling.reset();
+    testState=3;
   }
 }
 
