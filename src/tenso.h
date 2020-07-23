@@ -16,6 +16,7 @@ DigitalOut fSck(PIN_SCK);
 DigitalIn fDat(PIN_MISO);
 
 int getForce(){
+  #ifdef TENSO
   int buf = 0;
   fSck = 0;
   while(fDat==1){}
@@ -32,6 +33,10 @@ int getForce(){
     fSck = 0;
   }
   return abs(buf-forceOffset);
+  #else
+  int a = 0;
+  return 42;
+  #endif
 }
 
 int forceCalib(){
@@ -65,4 +70,16 @@ int getForceSmoothed(){
   fSm = fOld * forceSmooth + fRaw * (1-forceSmooth);
   fOld = fSm;
   return fSm;
+}
+
+int smooth(int value){
+  static int smoothed;
+  static int raw;
+  static int old;
+  float k = 0.95f;
+
+  raw = value;
+  smoothed = old * k + raw * (1-k);
+  old = smoothed;
+  return smoothed;
 }

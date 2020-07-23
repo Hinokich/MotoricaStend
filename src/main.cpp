@@ -3,6 +3,8 @@
 #include "config.h"
 #include "tenso.h"
 #include "current.h"
+#include "noise.h"
+#include "temperature.h"
 
 DigitalOut ach1(PIN_ACH_1);
 DigitalOut ach2(PIN_ACH_2);
@@ -19,6 +21,7 @@ void shakeDC(); //синхронный (не блок.) код с контрол
 void shakeACH();
 
 int shakesCount = 0;
+int shakesTarget = -1;
 int shakeTime = 600;
 int coolingTime = 1000;
 int testState = 3; 
@@ -34,13 +37,11 @@ void onDataRecieved();
 void parse();
 int combineParcel();
 
-/* Unused variables */
 int temp = 0;
 int nominalTemp = 0;
 int stopTemp = 60;
 int noise = 0;
 int voltage = 0;
-/* Unused variables */
 
 Serial pc(USBTX, USBRX);
 Timer timerMotion;
@@ -59,6 +60,9 @@ int main(){
 }
 
 void loop(){
+  temp = getTemp();
+  noise = getNoise();
+  current = getCurrent();
   combineParcel();
   pc.printf("%s", parcel);
   if(testState==1){ //if running
@@ -68,6 +72,13 @@ void loop(){
     if(driveType==4){ //if ACH
       shakeACH();
     }
+    if((shakesTarget!=-1)&&(shakesCount>=shakesTarget)){
+      stop();
+      testState=0; //успешное завершение
+    }
+  }
+  if((testState!=4)&&(temp>=stopTemp)){
+    testState=4;
   }
 }
 
@@ -206,7 +217,7 @@ void pause(){
 }
 
 void start(){
-  if(testState==3){
+  if((testState==3)or(testState==0)){
     reset();
   }
   testState = 1;
@@ -316,6 +327,15 @@ void parse(){
           forceSmooth = 0;
         }else{
           forceSmooth = SMOOTH_RATIO;
+        }
+        break;
+      }
+
+      case 17:{
+        if(c<=0){
+          shakesTarget=-1;
+        }else{
+          shakesTarget=c;
         }
         break;
       }
