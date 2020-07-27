@@ -1,8 +1,12 @@
+#ifndef MBED_H
+#include <mbed.h>
+#endif
+
 int current = 0;
 int getCurrent();
 int stopCurrent = 1200; //мА
 int currentGain = 185;
-int currentOffset = 2550;
+int currentOffset = CURRENT_OFFSET;
 int currentDelay = 300;
 int currentAverage = 0;
 int currentCycleSum = 0;

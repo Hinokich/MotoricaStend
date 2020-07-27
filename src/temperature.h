@@ -1,3 +1,7 @@
+#ifndef MBED_H
+#include <mbed.h>
+#endif
+
 #ifdef TMP35
 int tempOffset=0;
 int tempGain=10;
@@ -15,7 +19,7 @@ int tempGain=20;
 
 AnalogIn tempSensor(TEMP_PIN);
 
-int tempSmooth = SMOOTH_RATIO;
+int tempSmooth = 0.98f;
 
 int getTemp(){
   static int tRaw;

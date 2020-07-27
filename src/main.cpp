@@ -5,10 +5,10 @@
 #include "current.h"
 #include "noise.h"
 #include "temperature.h"
+#include "servo.h"
 
 DigitalOut ach1(PIN_ACH_1);
 DigitalOut ach2(PIN_ACH_2);
-PwmOut pwm(PIN_PWM);
 
 void loop();
 void reset();
@@ -19,7 +19,10 @@ void pause();
 void stop();
 void shakeDC(); //синхронный (не блок.) код с контролем по току
 void shakeACH();
+void checkTemperature();
+void checkShakesTarget();
 
+int controlType = 2;
 int shakesCount = 0;
 int shakesTarget = -1;
 int shakeTime = 600;
@@ -72,14 +75,9 @@ void loop(){
     if(driveType==4){ //if ACH
       shakeACH();
     }
-    if((shakesTarget!=-1)&&(shakesCount>=shakesTarget)){
-      stop();
-      testState=0; //успешное завершение
-    }
   }
-  if((testState!=4)&&(temp>=stopTemp)){
-    testState=4;
-  }
+  checkTemperature();
+  checkShakesTarget();
 }
 
 void shakeDC(){
@@ -331,6 +329,11 @@ void parse(){
         break;
       }
 
+      case 16:{
+        controlType = 0;
+        break;
+      }
+
       case 17:{
         if(c<=0){
           shakesTarget=-1;
@@ -393,4 +396,25 @@ void onDataRecieved(){
     }
     flushSerialBuffer();
   pc.attach(&onDataRecieved, SerialBase::RxIrq);
+}
+
+void checkTemperature(){
+  if((testState!=4)&&(temp>=stopTemp)&&(controlType==2)){
+    testState=4;
+    ach1=0;
+    ach2=0;
+    timerMotion.stop();
+    timerCooling.stop();
+    timerMotion.reset();
+    timerCooling.reset();
+  }
+}
+
+void checkShakesTarget(){
+  if(testState==1){ //if running
+    if((shakesTarget!=-1)&&(shakesCount>=shakesTarget)){
+      stop();
+      testState=0; //успешное завершение
+    }
+  }
 }

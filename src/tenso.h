@@ -1,3 +1,6 @@
+#ifndef MBED_H
+#include <mbed.h>
+#endif
 
 int force;
 int forceMaximum;
