@@ -1,6 +1,6 @@
 #define SMOOTH_RATIO 0.9f
 #define STAND2
-//#define TENSO
+#define TENSO
 
 #ifdef STAND1
 #define PIN_SCK PB_3

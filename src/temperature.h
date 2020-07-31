@@ -1,7 +1,3 @@
-#ifndef MBED_H
-#include <mbed.h>
-#endif
-
 #ifdef TMP35
 int tempOffset=0;
 int tempGain=10;

@@ -1,5 +1,4 @@
 #include <mbed.h>
-#include <list>
 #include "config.h"
 #include "tenso.h"
 #include "current.h"
@@ -19,8 +18,10 @@ void pause();
 void stop();
 void shakeDC(); //синхронный (не блок.) код с контролем по току
 void shakeACH();
+void shakeServo();
 void checkTemperature();
 void checkShakesTarget();
+void checkForceParams();
 
 int controlType = 2;
 int shakesCount = 0;
@@ -31,6 +32,12 @@ int testState = 3;
 int prosthesisState = 1;
 int motionState = 0; //0 не двигается, 1 октрывается, 2 закрывается
 int driveType = 3; //1 HDLC, 2 Servo, 3 DC, 4 ACH
+int bareShakes = 0; //циклы без достижения нужного показателя силы
+bool lastShakeWasBare = false;
+
+int servoPos = 0;
+int servoPosStart = 0;
+int servoPosStop = 90;
 
 char parcel[256];
 char* rxBuf;
@@ -68,12 +75,12 @@ void loop(){
   current = getCurrent();
   combineParcel();
   pc.printf("%s", parcel);
-  if(testState==1){ //if running
-    if(driveType==3){//if DC
-      shakeDC();
-    }
-    if(driveType==4){ //if ACH
-      shakeACH();
+  if(testState==1){
+    switch(driveType){
+    case 1: break; //HDLC
+    case 2: shakeServo(); //Servo
+    case 3: shakeDC(); //DC
+    case 4: shakeACH(); //ACH
     }
   }
   checkTemperature();
@@ -121,6 +128,14 @@ void shakeDC(){
         ach2=0;
       }
       if(prosthesisState==2){
+        if(force<=stopForce){
+          if(lastShakeWasBare)
+            bareShakes++;
+            lastShakeWasBare = true;
+        }else{
+          lastShakeWasBare = false;
+          bareShakes = 0;
+        }
         motionState=1;
         ach1=0;
         ach2=1;
@@ -151,6 +166,14 @@ void shakeACH(){
       ach2=0;
     }
     if(prosthesisState==2){
+      if(force<=stopForce){
+        if(lastShakeWasBare)
+          bareShakes++;
+        lastShakeWasBare = true;
+      }else{
+        lastShakeWasBare = false;
+        bareShakes = 0;
+      }
       motionState=1;
       ach1=0;
       ach2=1;
@@ -173,6 +196,24 @@ void shakeACH(){
     timerCooling.reset();
     timerCooling.start();
   }
+}
+
+void shakeServo(){
+  if(timerMotion.read_ms() >= servoCycleTime){
+    if(motionState==1){
+      prosthesisState = 1;
+      motionState = 2;
+      servoWrite(servoPosStop);
+    }
+    if(motionState==2){
+      prosthesisState = 2;
+      motionState = 1;
+      servoWrite(servoPosStart);
+    }
+    timerMotion.stop();
+    timerMotion.reset();
+    timerMotion.start();
+  } 
 }
 
 void open(){
@@ -301,8 +342,29 @@ void parse(){
         break;
       }
 
+      case 8:{
+        servoPos = c;
+        servoWrite(servoPos);
+        break;
+      }
+
+      case 9:{
+        nominalTemp = c;
+        break;
+      }
+
       case 10:{
         stopTemp = c;
+        break;
+      }
+
+      case 11:{
+        servoPosStart = c;
+        break;
+      }
+
+      case 12:{
+        servoPosStop = c;
         break;
       }
 
@@ -330,7 +392,7 @@ void parse(){
       }
 
       case 16:{
-        controlType = 0;
+        controlType = c;
         break;
       }
 
@@ -415,6 +477,16 @@ void checkShakesTarget(){
     if((shakesTarget!=-1)&&(shakesCount>=shakesTarget)){
       stop();
       testState=0; //успешное завершение
+    }
+  }
+}
+
+void checkForceParams(){
+  if((controlType==1)||(controlType==2)){
+    if(bareShakes>=stopForceShakes){
+      stop();
+      testState = 5;
+      bareShakes = 0;
     }
   }
 }

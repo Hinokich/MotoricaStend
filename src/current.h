@@ -1,7 +1,3 @@
-#ifndef MBED_H
-#include <mbed.h>
-#endif
-
 int current = 0;
 int getCurrent();
 int stopCurrent = 1200; //мА

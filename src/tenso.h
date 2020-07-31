@@ -1,7 +1,3 @@
-#ifndef MBED_H
-#include <mbed.h>
-#endif
-
 int force;
 int forceMaximum;
 int getForce();
@@ -11,31 +7,48 @@ int getForceSmoothed();
 int forceOffset = 0;
 int forceVirtualOffset = 0;
 int stopForce = 5000;
+int stopForceShakes = 5;
 float forceVirtualGain = 1.0f;
-float forceGain = 150;
+float forceGain = 1.0f;
 float forceSmooth = SMOOTH_RATIO;
+
+int transform(int value);
 
 DigitalOut fSck(PIN_SCK);
 DigitalIn fDat(PIN_MISO);
 
 int getForce(){
   #ifdef TENSO
+  static int lastforce = 0;
   int buf = 0;
   fSck = 0;
-  while(fDat==1){}
+  int timeout = 5000;
+  while((fDat==1)&&(timeout>0)){
+    timeout--;
+  }
+  if(timeout<=0){
+    return lastforce;
+  }
   for(int i=0; i<24; i++){
     fSck=1;
     buf = buf << 1;
     fSck=0;
+    wait_us(25);
     if(fDat==1){
       buf++;
     }
   }
-  for(int i=0; i<2; i++){
-    fSck = 1;
-    fSck = 0;
-  }
-  return abs(buf-forceOffset);
+
+  fSck = 1;
+  wait_us(25);
+  fSck = 0;
+  wait_us(25);
+
+
+  buf = transform(buf);
+  buf = buf - forceOffset;
+  lastforce = buf;
+  return lastforce;
   #else
   int a = 0;
   return 42;
@@ -45,19 +58,21 @@ int getForce(){
 int forceCalib(){
   int sum = 0;
   int ave = 0;
-  for(int i=0; i<40; i++){
+  int qtt = 50;
+  for(int i=0; i<qtt; i++){
     sum += getForce();
   }
-  ave = sum / 40;
+  ave = sum / qtt;
   return ave;
 }
 
 int forceTare(int mass){
   if(mass==0){
-    forceVirtualOffset = getForceSmoothed();
+    forceVirtualOffset = force;
   }else{
-    int v = getForceSmoothed();
-    forceVirtualGain = v / mass;
+    float m = mass;
+    float f = force;
+    forceVirtualGain = m/f;
   }
   return 0;
 }
@@ -66,23 +81,18 @@ int getForceSmoothed(){
   static int fRaw;
   static int fOld;
   static int fSm;
-  fRaw = (getForce())/forceGain;
+  fRaw = getForce();
   fRaw = fRaw - forceVirtualOffset;
-  fRaw = fRaw / forceVirtualGain;
+  fRaw = fRaw * forceVirtualGain;
   fRaw = abs(fRaw);
   fSm = fOld * forceSmooth + fRaw * (1-forceSmooth);
   fOld = fSm;
   return fSm;
 }
 
-int smooth(int value){
-  static int smoothed;
-  static int raw;
-  static int old;
-  float k = 0.95f;
-
-  raw = value;
-  smoothed = old * k + raw * (1-k);
-  old = smoothed;
-  return smoothed;
+int transform(int value){
+  uint8_t bit = value >> 23;
+	value &= ~(1 << 23);
+	value |= bit << 31;
+  return value;
 }

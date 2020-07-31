@@ -1,13 +1,11 @@
-#ifndef MBED_H
-#include <mbed.h>
-#endif
 PwmOut pwm(PIN_PWM);
 
 float servoPulseWidth = 0.001f; //Sec
 float servoPulsePeriod = 0.02f; //Sec
-float servoFullAngleRange = 180; //deg
 int servoLimitLow = 0;
 int servoLimitHigh = 180;
+int servoCycleTime = 1000; //mS
+float servoFullAngleRange = servoLimitHigh-servoLimitLow; //deg
 
 int servoWrite(int angle){
     if(angle<servoLimitLow){
@@ -24,4 +22,3 @@ int servoWrite(int angle){
     pwm.pulsewidth(servoWidth);
     return angle;
 }
-
