@@ -18,7 +18,6 @@ void pause();
 void stop();
 void shakeDC(); //синхронный (не блок.) код с контролем по току
 void shakeACH();
-void shakeServo();
 void checkTemperature();
 void checkShakesTarget();
 void checkForceParams();
@@ -31,13 +30,13 @@ int coolingTime = 1000;
 int testState = 3; 
 int prosthesisState = 1;
 int motionState = 0; //0 не двигается, 1 октрывается, 2 закрывается
-int driveType = 3; //1 HDLC, 2 Servo, 3 DC, 4 ACH
+int driveType = 0; //0 нету, 1 HDLC, 2 Servo, 3 DC, 4 ACH
 int bareShakes = 0; //циклы без достижения нужного показателя силы
 bool lastShakeWasBare = false;
 
 int servoPos = 0;
 int servoPosStart = 0;
-int servoPosStop = 90;
+int servoPosStop = 180;
 
 char parcel[256];
 char* rxBuf;
@@ -60,9 +59,8 @@ Timer timerCooling;
 int main(){
   pc.baud(115200);
   forceOffset = forceCalib();
+  currentOffset = currentCalib();
   timerCooling.start();
-  pwm.period_ms(20); //для мотора
-  pwm.write(1.0f);
   pc.attach(&onDataRecieved, SerialBase::RxIrq);
   while(1) {
     loop();
@@ -78,9 +76,9 @@ void loop(){
   if(testState==1){
     switch(driveType){
     case 1: break; //HDLC
-    case 2: shakeServo(); //Servo
-    case 3: shakeDC(); //DC
-    case 4: shakeACH(); //ACH
+    case 2: shakeACH(); break; //Servo
+    case 3: shakeDC(); break; //DC
+    case 4: shakeACH(); break; //ACH
     }
   }
   checkTemperature();
@@ -89,7 +87,7 @@ void loop(){
 
 void shakeDC(){
   static int cycleStep;
-  current = getCurrent();
+  current = abs(getCurrent());
   cycleStep++;
   currentCycleSum+=current;
   if(force>forceMaximum){
@@ -164,6 +162,8 @@ void shakeACH(){
       motionState=2;
       ach1=1;
       ach2=0;
+      if(driveType==2)
+        servoWrite(servoPosStop);
     }
     if(prosthesisState==2){
       if(force<=stopForce){
@@ -177,6 +177,8 @@ void shakeACH(){
       motionState=1;
       ach1=0;
       ach2=1;
+      if(driveType==2)
+        servoWrite(servoPosStart);
     }
     timerCooling.stop();
     timerCooling.reset();
@@ -196,24 +198,6 @@ void shakeACH(){
     timerCooling.reset();
     timerCooling.start();
   }
-}
-
-void shakeServo(){
-  if(timerMotion.read_ms() >= servoCycleTime){
-    if(motionState==1){
-      prosthesisState = 1;
-      motionState = 2;
-      servoWrite(servoPosStop);
-    }
-    if(motionState==2){
-      prosthesisState = 2;
-      motionState = 1;
-      servoWrite(servoPosStart);
-    }
-    timerMotion.stop();
-    timerMotion.reset();
-    timerMotion.start();
-  } 
 }
 
 void open(){
@@ -256,7 +240,7 @@ void pause(){
 }
 
 void start(){
-  if((testState==3)or(testState==0)){
+  if((testState==3)or(testState==0)or(testState==4)or(testState==5)){
     reset();
   }
   testState = 1;
@@ -337,6 +321,10 @@ void parse(){
 
       case 7:{
         driveType=c;
+        if(driveType!=2){ //if not servo
+          pwm.period_ms(20); //для мотора
+          pwm.write(1.0f);
+        }
         stop();
         reset();
         break;
